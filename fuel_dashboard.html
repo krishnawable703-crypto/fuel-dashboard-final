@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fuel Monitor — Live Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  /* ── CONFIG BANNER ── */
+  #config-banner {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 999;
+    background: #f5a623; color: #060e18;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px; padding: 8px 20px;
+    display: flex; align-items: center; gap: 12px;
+    transform: translateY(0); transition: transform 0.3s;
+  }
+  #config-banner.hidden { transform: translateY(-100%); }
+  #config-banner input {
+    background: rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.3);
+    color: #060e18; font-family: 'Share Tech Mono', monospace;
+    font-size: 12px; padding: 4px 8px; border-radius: 4px; width: 180px;
+  }
+  #config-banner button {
+    background: #060e18; color: #f5a623; border: none;
+    font-family: 'Share Tech Mono', monospace; font-size: 11px;
+    padding: 5px 12px; border-radius: 4px; cursor: pointer; letter-spacing: 1px;
+  }
+
+  /* ── BASE ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:       #04090f;
+    --surface:  #0a1520;
+    --surface2: #0f1e2e;
+    --border:   #15293d;
+    --accent:   #00e5a0;
+    --accent2:  #00b37a;
+    --orange:   #f5a623;
+    --purple:   #7c6ff7;
+    --red:      #ff4757;
+    --text:     #d0e4f0;
+    --muted:    #4a6478;
+    --mono:     'Share Tech Mono', monospace;
+    --sans:     'Barlow', sans-serif;
+  }
+
+  html, body {
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    overflow-x: hidden;
+  }
+
+  /* animated grid background */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 0;
+    background-image:
+      linear-gradient(rgba(0,229,160,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,160,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+  }
+
+  .page { position: relative; z-index: 1; padding: 80px 24px 40px; max-width: 1280px; margin: 0 auto; }
+
+  /* ── HEADER ── */
+  header {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    margin-bottom: 32px; padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .header-left { display: flex; flex-direction: column; gap: 4px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 4px;
+    color: var(--accent); text-transform: uppercase;
+  }
+  h1 {
+    font-family: var(--sans); font-size: 28px; font-weight: 700;
+    color: #fff; letter-spacing: -0.5px; line-height: 1.1;
+  }
+  .header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .status-row { display: flex; gap: 12px; align-items: center; }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted); display: inline-block;
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  .dot.live { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse 2s infinite; }
+  .dot.warn { background: var(--orange); box-shadow: 0 0 8px var(--orange); }
+  .dot.err  { background: var(--red);    box-shadow: 0 0 8px var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .status-label { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 2px; }
+  #last-update { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  #countdown-bar {
+    height: 2px; width: 200px; background: var(--border); border-radius: 2px; overflow: hidden;
+  }
+  #countdown-fill {
+    height: 100%; width: 100%; background: var(--accent);
+    transform-origin: left; transition: transform 0.5s linear;
+  }
+
+  /* ── GRID LAYOUT ── */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 280px 1fr 1fr;
+    grid-template-rows: auto auto;
+    gap: 16px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    animation: fadeUp 0.5s ease both;
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .card:nth-child(1) { animation-delay: 0.05s; }
+  .card:nth-child(2) { animation-delay: 0.10s; }
+  .card:nth-child(3) { animation-delay: 0.15s; }
+  .card:nth-child(4) { animation-delay: 0.20s; }
+  .card:nth-child(5) { animation-delay: 0.25s; }
+
+  .card-label {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 3px;
+    color: var(--muted); text-transform: uppercase; margin-bottom: 14px;
+  }
+  .card-accent-line {
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  }
+
+  /* ── GAUGE CARD ── */
+  .gauge-card { grid-row: span 2; display: flex; flex-direction: column; align-items: center; }
+  .gauge-wrap { position: relative; width: 220px; height: 220px; margin: 8px 0; }
+  #gaugeCanvas { width: 220px !important; height: 220px !important; }
+  .gauge-center {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -52%);
+    text-align: center; pointer-events: none;
+  }
+  .gauge-pct {
+    font-family: var(--mono); font-size: 42px; font-weight: 700;
+    line-height: 1; color: #fff;
+    transition: color 0.5s;
+  }
+  .gauge-sub { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 2px; margin-top: 4px; }
+  .gauge-vol {
+    font-family: var(--mono); font-size: 15px; color: var(--text);
+    margin-top: 6px; letter-spacing: 1px;
+  }
+  .status-pill {
+    display: inline-block; padding: 4px 14px; border-radius: 20px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 2px;
+    font-weight: 700; margin-top: 12px;
+    background: var(--surface2); border: 1px solid var(--border);
+    transition: all 0.4s;
+  }
+  .status-pill.normal { background: rgba(0,229,160,0.12); border-color: var(--accent); color: var(--accent); }
+  .status-pill.low    { background: rgba(245,166,35,0.12);  border-color: var(--orange); color: var(--orange); }
+  .status-pill.crit   { background: rgba(255,71,87,0.12);   border-color: var(--red);    color: var(--red); animation: blink 1s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ── FLOW BARS ── */
+  .flow-row { margin-bottom: 18px; }
+  .flow-row:last-child { margin-bottom: 0; }
+  .flow-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .flow-name { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--muted); }
+  .flow-val  { font-family: var(--mono); font-size: 16px; font-weight: 700; transition: color 0.3s; }
+  .flow-unit { font-size: 10px; color: var(--muted); }
+  .flow-track {
+    height: 8px; background: var(--border); border-radius: 4px; overflow: hidden;
+  }
+  .flow-fill {
+    height: 100%; border-radius: 4px; width: 0%;
+    transition: width 0.8s cubic-bezier(0.4,0,0.2,1), background 0.3s;
+  }
+  .net-row {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);
+  }
+  .net-label { font-family: var(--mono); font-size: 10px; letter-spacing: 2px; color: var(--muted); }
+  .net-val   { font-family: var(--mono); font-size: 15px; font-weight: 700; }
+
+  /* ── STAT BOXES ── */
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .stat-box {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .stat-label { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--muted); margin-bottom: 6px; }
+  .stat-val   { font-family: var(--mono); font-size: 24px; font-weight: 700; line-height: 1; }
+  .stat-unit  { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: 3px; }
+
+  /* ── CHARTS ── */
+  .charts-row {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 16px; margin-top: 16px;
+  }
+  .chart-card { }
+  .chart-wrap { height: 180px; position: relative; }
+
+  /* ── HISTORY TABLE ── */
+  .history-card { margin-top: 16px; }
+  .history-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+  .history-table th {
+    text-align: left; padding: 8px 12px; color: var(--muted);
+    letter-spacing: 2px; border-bottom: 1px solid var(--border);
+    font-size: 9px; text-transform: uppercase;
+  }
+  .history-table td { padding: 8px 12px; border-bottom: 1px solid rgba(21,41,61,0.5); }
+  .history-table tr:last-child td { border-bottom: none; }
+  .history-table tr:hover td { background: var(--surface2); }
+  .tval { color: var(--text); }
+  .tval.accent { color: var(--accent); }
+  .tval.orange { color: var(--orange); }
+
+  /* ── FOOTER ── */
+  footer {
+    margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .footer-text { font-family: var(--mono); font-size: 9px; color: var(--muted); letter-spacing: 2px; }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 900px) {
+    .main-grid { grid-template-columns: 1fr 1fr; }
+    .gauge-card { grid-row: span 1; grid-column: span 2; }
+    .charts-row { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 600px) {
+    .main-grid { grid-template-columns: 1fr; }
+    .gauge-card { grid-column: span 1; }
+    header { flex-direction: column; align-items: flex-start; gap: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── CONFIG BANNER ── -->
+<div id="config-banner">
+  ⚙ CONFIGURE:
+  <span>Channel ID:</span>
+  <input id="inp-channel" type="text" placeholder="e.g. 2345678" value="">
+  <span>Read API Key:</span>
+  <input id="inp-apikey"  type="text" placeholder="e.g. ABCDEF1234567890" value="">
+  <button onclick="applyConfig()">▶ CONNECT</button>
+  <button onclick="loadDemo()">⚡ DEMO MODE</button>
+  <span style="color:rgba(0,0,0,0.5);font-size:10px">⚠ Use READ API Key · Set channel to Public on ThingSpeak</span>
+</div>
+
+<div class="page">
+
+  <!-- ── HEADER ── -->
+  <header>
+    <div class="header-left">
+      <span class="eyebrow">◈ Precision Fuel Monitor v1.0</span>
+      <h1>Live Fuel Dashboard</h1>
+    </div>
+    <div class="header-right">
+      <div class="status-row">
+        <span class="dot" id="conn-dot"></span>
+        <span class="status-label" id="conn-label">DISCONNECTED</span>
+      </div>
+      <div id="last-update">Last update: —</div>
+      <div id="countdown-bar"><div id="countdown-fill"></div></div>
+    </div>
+  </header>
+
+  <!-- ── MAIN GRID ── -->
+  <div class="main-grid">
+
+    <!-- GAUGE -->
+    <div class="card gauge-card">
+      <div class="card-accent-line" style="background: linear-gradient(90deg,#00e5a0,transparent)"></div>
+      <div class="card-label">FUEL LEVEL</div>
+      <div class="gauge-wrap">
+        <canvas id="gaugeCanvas" width="220" height="220"></canvas>
+        <div class="gauge-center">
+          <div class="gauge-pct" id="g-pct">--%</div>
+          <div class="gauge-sub">FUEL LEVEL</div>
+        </div>
+      </div>
+      <div class="gauge-vol" id="g-vol">-- / -- L</div>
+      <div class="status-pill" id="status-pill">OFFLINE</div>
+      <div style="margin-top:16px;width:100%">
+        <div class="stat-label" style="margin-bottom:8px">TANK CAPACITY</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="cap-input" type="number" value="5" min="1" max="200" step="0.5"
+            style="background:var(--surface2);border:1px solid var(--border);color:var(--accent);
+            font-family:var(--mono);font-size:18px;font-weight:700;padding:6px 10px;
+            border-radius:6px;width:80px">
+          <span style="font-family:var(--mono);font-size:12px;color:var(--muted)">Litres</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- FLOW SENSORS -->
+    <div class="card">
+      <div class="card-accent-line" style="background: linear-gradient(90deg,#4ecdc4,transparent)"></div>
+      <div class="card-label">FLOW SENSORS</div>
+
+      <div class="flow-row">
+        <div class="flow-header">
+          <span class="flow-name">INLET &nbsp;(YF-S401 — FILL LINE)</span>
+          <span>
+            <span class="flow-val" id="flow-in-val" style="color:var(--accent)">0.00</span>
+            <span class="flow-unit"> L/min</span>
+          </span>
+        </div>
+        <div class="flow-track">
+          <div class="flow-fill" id="flow-in-bar" style="background:var(--accent);max-width:100%"></div>
+        </div>
+      </div>
+
+      <div class="flow-row">
+        <div class="flow-header">
+          <span class="flow-name">OUTLET (YF-S401 — ENGINE LINE)</span>
+          <span>
+            <span class="flow-val" id="flow-out-val" style="color:var(--purple)">0.00</span>
+            <span class="flow-unit"> L/min</span>
+          </span>
+        </div>
+        <div class="flow-track">
+          <div class="flow-fill" id="flow-out-bar" style="background:var(--purple);max-width:100%"></div>
+        </div>
+      </div>
+
+      <div class="net-row">
+        <span class="net-label">NET FLOW</span>
+        <span class="net-val" id="net-flow">+0.00 L/min</span>
+      </div>
+    </div>
+
+    <!-- SESSION STATS -->
+    <div class="card">
+      <div class="card-accent-line" style="background: linear-gradient(90deg,#7c6ff7,transparent)"></div>
+      <div class="card-label">SESSION TOTALS</div>
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">TOTAL FILLED</div>
+          <div class="stat-val" id="stat-fill" style="color:var(--accent)">0.00</div>
+          <div class="stat-unit">litres</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">TOTAL CONSUMED</div>
+          <div class="stat-val" id="stat-cons" style="color:var(--purple)">0.00</div>
+          <div class="stat-unit">litres</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">INLET SENSOR</div>
+          <div class="stat-val" style="color:var(--accent);font-size:14px;margin-top:4px">YF-S401</div>
+          <div class="stat-unit">0.3 – 6 L/min</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">OUTLET SENSOR</div>
+          <div class="stat-val" style="color:var(--purple);font-size:14px;margin-top:4px">YF-S401</div>
+          <div class="stat-unit">0.3 – 6 L/min</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main-grid -->
+
+  <!-- ── CHARTS ── -->
+  <div class="charts-row">
+    <div class="card chart-card">
+      <div class="card-accent-line" style="background:linear-gradient(90deg,#00e5a0,transparent)"></div>
+      <div class="card-label">FUEL LEVEL HISTORY (%)</div>
+      <div class="chart-wrap"><canvas id="chartLevel"></canvas></div>
+    </div>
+    <div class="card chart-card">
+      <div class="card-accent-line" style="background:linear-gradient(90deg,#7c6ff7,transparent)"></div>
+      <div class="card-label">FLOW RATES HISTORY (L/min)</div>
+      <div class="chart-wrap"><canvas id="chartFlow"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ── HISTORY TABLE ── -->
+  <div class="card history-card">
+    <div class="card-accent-line" style="background:linear-gradient(90deg,#f5a623,transparent)"></div>
+    <div class="card-label">RECENT READINGS — THINGSPEAK LOG</div>
+    <table class="history-table">
+      <thead>
+        <tr>
+          <th>TIME</th>
+          <th>FUEL LEVEL %</th>
+          <th>INLET (L/min)</th>
+          <th>OUTLET (L/min)</th>
+          <th>TOTAL FILLED (L)</th>
+          <th>TOTAL CONSUMED (L)</th>
+        </tr>
+      </thead>
+      <tbody id="history-body">
+        <tr><td colspan="6" style="color:var(--muted);text-align:center;padding:20px">
+          Enter Channel ID and API Key above to load data
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <footer>
+    <div class="footer-text">ESP32 · YF-S401 × 2 · THINGSPEAK · BLE + WI-FI · ARDUINO IDE</div>
+    <div class="footer-text" id="footer-channel">CHANNEL: NOT CONFIGURED</div>
+    <div class="footer-text">AUTO-REFRESH: 15s</div>
+  </footer>
+
+</div><!-- /page -->
+
+<script>
+// ── CONFIG ────────────────────────────────────────────────────────────────
+let CHANNEL_ID = '';
+let READ_API   = '';
+let TANK_CAP   = 5.0;
+let isDemoMode = false;
+let refreshInterval = null;
+let countdownInterval = null;
+let countdownSec = 15;
+
+function applyConfig() {
+  CHANNEL_ID = document.getElementById('inp-channel').value.trim();
+  READ_API   = document.getElementById('inp-apikey').value.trim();
+  if (!CHANNEL_ID || !READ_API) { alert('Please enter both Channel ID and API Key'); return; }
+  isDemoMode = false;
+  document.getElementById('config-banner').classList.add('hidden');
+  document.getElementById('footer-channel').textContent = 'CHANNEL: ' + CHANNEL_ID;
+  startDashboard();
+}
+
+function loadDemo() {
+  isDemoMode = true;
+  CHANNEL_ID = 'DEMO';
+  document.getElementById('config-banner').classList.add('hidden');
+  document.getElementById('footer-channel').textContent = 'CHANNEL: DEMO MODE';
+  startDashboard();
+}
+
+// ── GAUGE ─────────────────────────────────────────────────────────────────
+const gaugeCanvas = document.getElementById('gaugeCanvas');
+const gCtx = gaugeCanvas.getContext('2d');
+
+function drawGauge(pct) {
+  const cx = 110, cy = 110, r = 90;
+  const startAngle = Math.PI * 0.75;
+  const totalAngle = Math.PI * 1.5;
+  const filled     = totalAngle * (pct / 100);
+  const color = pct > 50 ? '#00e5a0' : pct > 20 ? '#f5a623' : '#ff4757';
+
+  gCtx.clearRect(0, 0, 220, 220);
+
+  // Track
+  gCtx.beginPath();
+  gCtx.arc(cx, cy, r, startAngle, startAngle + totalAngle);
+  gCtx.strokeStyle = '#15293d';
+  gCtx.lineWidth = 16;
+  gCtx.lineCap = 'round';
+  gCtx.stroke();
+
+  // Ticks
+  for (let i = 0; i <= 10; i++) {
+    const a = startAngle + (totalAngle / 10) * i;
+    const x1 = cx + (r - 10) * Math.cos(a), y1 = cy + (r - 10) * Math.sin(a);
+    const x2 = cx + (r + 2)  * Math.cos(a), y2 = cy + (r + 2)  * Math.sin(a);
+    gCtx.beginPath(); gCtx.moveTo(x1, y1); gCtx.lineTo(x2, y2);
+    gCtx.strokeStyle = '#1e3a50'; gCtx.lineWidth = 1.5; gCtx.stroke();
+  }
+
+  if (pct > 0) {
+    // Glow
+    gCtx.shadowColor = color; gCtx.shadowBlur = 18;
+    gCtx.beginPath();
+    gCtx.arc(cx, cy, r, startAngle, startAngle + filled);
+    gCtx.strokeStyle = color;
+    gCtx.lineWidth = 16; gCtx.lineCap = 'round'; gCtx.stroke();
+    gCtx.shadowBlur = 0;
+
+    // Needle dot
+    const na = startAngle + filled;
+    const nx = cx + (r) * Math.cos(na), ny = cy + (r) * Math.sin(na);
+    gCtx.beginPath(); gCtx.arc(nx, ny, 7, 0, Math.PI * 2);
+    gCtx.fillStyle = color; gCtx.shadowColor = color; gCtx.shadowBlur = 12;
+    gCtx.fill(); gCtx.shadowBlur = 0;
+  }
+
+  // Update text
+  document.getElementById('g-pct').textContent = Math.round(pct) + '%';
+  document.getElementById('g-pct').style.color = color;
+}
+
+// ── CHARTS ────────────────────────────────────────────────────────────────
+const chartDefaults = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { display: false }, tooltip: {
+    backgroundColor: '#0f1e2e', borderColor: '#15293d', borderWidth: 1,
+    titleFont: { family: "'Share Tech Mono'" }, bodyFont: { family: "'Share Tech Mono'" },
+    titleColor: '#4a6478', bodyColor: '#d0e4f0',
+  }},
+  scales: {
+    x: { grid: { color: '#0f1e2e' }, ticks: { color: '#4a6478', font: { family: "'Share Tech Mono'", size: 9 } } },
+    y: { grid: { color: '#0f1e2e' }, ticks: { color: '#4a6478', font: { family: "'Share Tech Mono'", size: 9 } } }
+  },
+  animation: { duration: 600, easing: 'easeInOutQuart' }
+};
+
+const chartLevel = new Chart(document.getElementById('chartLevel'), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [{
+      data: [], borderColor: '#00e5a0', backgroundColor: 'rgba(0,229,160,0.06)',
+      borderWidth: 2, fill: true, tension: 0.4, pointRadius: 3,
+      pointBackgroundColor: '#00e5a0', pointBorderColor: '#04090f', pointBorderWidth: 1,
+    }]
+  },
+  options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, min: 0, max: 100 } } }
+});
+
+const chartFlow = new Chart(document.getElementById('chartFlow'), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: 'Inlet', data: [],
+        borderColor: '#00e5a0', backgroundColor: 'transparent',
+        borderWidth: 2, tension: 0.4, pointRadius: 2, pointBackgroundColor: '#00e5a0',
+      },
+      {
+        label: 'Outlet', data: [],
+        borderColor: '#7c6ff7', backgroundColor: 'transparent',
+        borderWidth: 2, tension: 0.4, pointRadius: 2, pointBackgroundColor: '#7c6ff7',
+      }
+    ]
+  },
+  options: { ...chartDefaults, plugins: {
+    ...chartDefaults.plugins,
+    legend: {
+      display: true, position: 'top', align: 'end',
+      labels: { color: '#4a6478', font: { family: "'Share Tech Mono'", size: 9 }, boxWidth: 12, padding: 10 }
+    }
+  }}
+});
+
+// ── DATA UPDATE ───────────────────────────────────────────────────────────
+function updateUI(entries) {
+  if (!entries || entries.length === 0) return;
+  const latest = entries[entries.length - 1];
+
+  TANK_CAP = parseFloat(document.getElementById('cap-input').value) || 5.0;
+
+  const pct     = parseFloat(latest.field1) || 0;
+  const flowIn  = parseFloat(latest.field2) || 0;
+  const flowOut = parseFloat(latest.field3) || 0;
+  const filled  = parseFloat(latest.field4) || 0;
+  const cons    = parseFloat(latest.field5) || 0;
+  const vol     = (pct / 100) * TANK_CAP;
+
+  // Gauge
+  drawGauge(pct);
+  document.getElementById('g-vol').textContent = vol.toFixed(2) + ' / ' + TANK_CAP.toFixed(1) + ' L';
+
+  // Status pill
+  const pill = document.getElementById('status-pill');
+  if (pct > 50)      { pill.className = 'status-pill normal'; pill.textContent = 'NORMAL'; }
+  else if (pct > 20) { pill.className = 'status-pill low';    pill.textContent = 'LOW FUEL'; }
+  else               { pill.className = 'status-pill crit';   pill.textContent = '⚠ CRITICAL'; }
+
+  // Flow bars (max scale = 6 L/min for YF-S401)
+  const MAX_FLOW = 6.0;
+  document.getElementById('flow-in-val').textContent  = flowIn.toFixed(2);
+  document.getElementById('flow-out-val').textContent = flowOut.toFixed(2);
+  document.getElementById('flow-in-bar').style.width  = Math.min((flowIn  / MAX_FLOW) * 100, 100) + '%';
+  document.getElementById('flow-out-bar').style.width = Math.min((flowOut / MAX_FLOW) * 100, 100) + '%';
+
+  const net = flowIn - flowOut;
+  const netEl = document.getElementById('net-flow');
+  netEl.textContent = (net >= 0 ? '+' : '') + net.toFixed(2) + ' L/min';
+  netEl.style.color = net > 0 ? 'var(--accent)' : net < 0 ? 'var(--red)' : 'var(--muted)';
+
+  // Stats
+  document.getElementById('stat-fill').textContent = filled.toFixed(2);
+  document.getElementById('stat-cons').textContent = cons.toFixed(2);
+
+  // Charts — last 20 entries
+  const recent = entries.slice(-20);
+  const labels = recent.map(e => {
+    const d = new Date(e.created_at);
+    return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0') + ':' + d.getSeconds().toString().padStart(2,'0');
+  });
+
+  chartLevel.data.labels = labels;
+  chartLevel.data.datasets[0].data = recent.map(e => parseFloat(e.field1) || 0);
+  chartLevel.update();
+
+  chartFlow.data.labels = labels;
+  chartFlow.data.datasets[0].data = recent.map(e => parseFloat(e.field2) || 0);
+  chartFlow.data.datasets[1].data = recent.map(e => parseFloat(e.field3) || 0);
+  chartFlow.update();
+
+  // History table
+  const tbody = document.getElementById('history-body');
+  tbody.innerHTML = '';
+  [...recent].reverse().forEach(e => {
+    const d    = new Date(e.created_at);
+    const time = d.toLocaleTimeString();
+    const tr   = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="tval">${time}</td>
+      <td class="tval accent">${parseFloat(e.field1||0).toFixed(1)}%</td>
+      <td class="tval">${parseFloat(e.field2||0).toFixed(3)}</td>
+      <td class="tval">${parseFloat(e.field3||0).toFixed(3)}</td>
+      <td class="tval accent">${parseFloat(e.field4||0).toFixed(3)}</td>
+      <td class="tval orange">${parseFloat(e.field5||0).toFixed(3)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  // Connection status
+  document.getElementById('conn-dot').className   = 'dot live';
+  document.getElementById('conn-label').textContent = 'LIVE';
+  document.getElementById('last-update').textContent = 'Last update: ' + new Date().toLocaleTimeString();
+}
+
+// ── DEMO DATA ─────────────────────────────────────────────────────────────
+let demoFuel = 72, demoFill = 3.2, demoCons = 1.8;
+function getDemoEntries(count) {
+  const entries = [];
+  const now = new Date();
+  for (let i = count - 1; i >= 0; i--) {
+    const t = new Date(now - i * 15000);
+    demoFuel  = Math.max(0, Math.min(100, demoFuel  + (Math.random() - 0.52) * 1.2));
+    demoFill += Math.random() * 0.05;
+    demoCons += Math.random() * 0.04;
+    entries.push({
+      created_at: t.toISOString(),
+      field1: demoFuel.toFixed(2),
+      field2: (Math.random() * 0.8 + 0.2).toFixed(3),
+      field3: (Math.random() * 0.5 + 0.1).toFixed(3),
+      field4: demoFill.toFixed(3),
+      field5: demoCons.toFixed(3),
+    });
+  }
+  return entries;
+}
+
+// ── FETCH FROM THINGSPEAK ─────────────────────────────────────────────────
+async function fetchData() {
+  if (isDemoMode) {
+    updateUI(getDemoEntries(20));
+    return;
+  }
+
+  // Show fetching state
+  document.getElementById('conn-dot').className    = 'dot warn';
+  document.getElementById('conn-label').textContent = 'FETCHING...';
+
+  try {
+    const url = `https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds.json?api_key=${READ_API}&results=20`;
+    const res  = await fetch(url);
+
+    // Bad credentials — ThingSpeak returns 400 or -1 text
+    if (res.status === 400 || res.status === 401) {
+      setError('BAD API KEY / CHANNEL ID', 'ThingSpeak rejected the credentials. Double-check your Channel ID and Read API Key.');
+      return;
+    }
+    if (!res.ok) {
+      setError('HTTP ERROR ' + res.status, 'ThingSpeak returned an unexpected error. Try again.');
+      return;
+    }
+
+    const text = await res.text();
+
+    // ThingSpeak returns "-1" text when API key is wrong
+    if (text.trim() === '-1') {
+      setError('INVALID API KEY', 'ThingSpeak returned -1. Make sure you are using the READ API Key (not Write API Key) and the Channel ID is correct.');
+      return;
+    }
+
+    const data = JSON.parse(text);
+
+    if (data.feeds && data.feeds.length > 0) {
+      // ✅ Success — real data received
+      updateUI(data.feeds);
+    } else {
+      // Channel exists but ESP32 hasn't sent data yet
+      document.getElementById('conn-dot').className    = 'dot warn';
+      document.getElementById('conn-label').textContent = 'WAITING FOR ESP32';
+      document.getElementById('last-update').textContent =
+        '⚠ Channel connected but no data yet — upload firmware to ESP32 and power it on.';
+      showWaitingState();
+    }
+
+  } catch (err) {
+    console.error('[ThingSpeak] Fetch error:', err);
+    // Most likely cause when opening as local file: network blocked or wrong credentials
+    setError('FETCH FAILED', 'Check: (1) Internet connection  (2) Channel ID and API Key are correct  (3) Channel is set to Public on ThingSpeak.');
+  }
+}
+
+function setError(label, detail) {
+  document.getElementById('conn-dot').className    = 'dot err';
+  document.getElementById('conn-label').textContent = label;
+  document.getElementById('last-update').textContent = detail;
+  // Show config banner again so user can re-enter credentials
+  document.getElementById('config-banner').classList.remove('hidden');
+}
+
+function showWaitingState() {
+  // Draw gauge at 0 with waiting message
+  drawGauge(0);
+  document.getElementById('g-vol').textContent = '-- / ' + (parseFloat(document.getElementById('cap-input').value)||5).toFixed(1) + ' L';
+  const pill = document.getElementById('status-pill');
+  pill.className = 'status-pill low';
+  pill.textContent = 'WAITING FOR ESP32';
+
+  // Show helpful message in history table
+  document.getElementById('history-body').innerHTML = `
+    <tr><td colspan="6" style="color:var(--orange);text-align:center;padding:24px;font-family:var(--mono);font-size:11px;letter-spacing:1px">
+      ⚡ Channel verified — waiting for ESP32 to send data.<br><br>
+      <span style="color:var(--muted)">
+        Steps:<br>
+        1. Open fuel_monitor_esp32.ino in Arduino IDE<br>
+        2. Fill in your Wi-Fi credentials and ThingSpeak Write API Key<br>
+        3. Upload to ESP32 and power it on<br>
+        4. Send BLE command ENGINE:ON or FILL:ON to start data flowing<br>
+        5. Dashboard will update automatically every 15 seconds
+      </span>
+    </td></tr>`;
+}
+
+// ── COUNTDOWN ─────────────────────────────────────────────────────────────
+function startCountdown() {
+  countdownSec = 15;
+  clearInterval(countdownInterval);
+  countdownInterval = setInterval(() => {
+    countdownSec = Math.max(0, countdownSec - 0.5);
+    document.getElementById('countdown-fill').style.transform =
+      `scaleX(${countdownSec / 15})`;
+  }, 500);
+}
+
+// ── START DASHBOARD ───────────────────────────────────────────────────────
+function startDashboard() {
+  drawGauge(0);
+  fetchData();
+  startCountdown();
+  clearInterval(refreshInterval);
+  refreshInterval = setInterval(() => {
+    fetchData();
+    startCountdown();
+  }, 15000);
+}
+
+// Init gauge with 0
+drawGauge(0);
+</script>
+</body>
+</html>
