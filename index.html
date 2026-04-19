@@ -422,7 +422,7 @@ let TANK_CAP   = 5.0;
 let isDemoMode = false;
 let refreshInterval = null;
 let countdownInterval = null;
-let countdownSec = 15;
+let countdownSec = 10;
 
 function applyConfig() {
   CHANNEL_ID = document.getElementById('inp-channel').value.trim();
@@ -737,7 +737,7 @@ function showWaitingState() {
 
 // ── COUNTDOWN ─────────────────────────────────────────────────────────────
 function startCountdown() {
-  countdownSec = 15;
+  countdownSec = 10;
   clearInterval(countdownInterval);
   countdownInterval = setInterval(() => {
     countdownSec = Math.max(0, countdownSec - 0.5);
@@ -755,7 +755,7 @@ function startDashboard() {
   refreshInterval = setInterval(() => {
     fetchData();
     startCountdown();
-  }, 15000);
+  }, 10000);
 }
 
 // Init gauge with 0
